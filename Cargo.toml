@@ -7,6 +7,9 @@ edition = "2021"
 
 [dependencies]
 colored = "2.0.4"
+include-lines = "1.1.2"
 rand = "0.8.5"
+serde = { version = "1.0.192", features = ["derive"] }
+serde_json = "1.0.108"
 text_io = "0.1.12"
 url = "2.4.1"

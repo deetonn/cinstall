@@ -31,7 +31,8 @@ fn usage(program_name: &str, message: Option<String>) -> ! {
     outputln!("usage: {} [...options]", program_name);
     outputln!("  [url]: A github URL to a project that is using CMake or Make.");
     outputln!("  [package]: The name of a package name learnt from `--list-packages`");
-    outputln!("  [--list-packages]: Skip installation and output all known packages.");
+    outputln!("  [--list-packages [...opts]]: Skip installation and output all known packages.");
+    outputln!("    [filter]: The filter to apply when listing packages. This just checks if the package name contains that string.");
     if let Some(msg) = message {
         outputln!("reason: {}", msg);
     }
@@ -58,12 +59,22 @@ fn main() {
     };
 
     if first_arg == "--list-packages" {
+        let mut filter: Option<String> = None;
+        if let Some(next) = argv.next() {
+            // expect this to be a filter.
+            filter = Some(next);
+        }
         for (name, package) in registry.packages().iter() {
             let (desc, url, lang) = (
                 package.description,
                 package.url,
                 package.language.to_string(),
             );
+            if let Some(filter) = &filter {
+                if !name.contains(filter) {
+                    continue;
+                }
+            }
             eprintln!(
                 "[{}] {} - {} ({}) [{} (not always accurate)]",
                 "package".bold().bright_cyan(),
