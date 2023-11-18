@@ -7,9 +7,9 @@ You simply run `cinstall github-link-to-repo` and the rest is done for you!
 Let's say you want to install a library nice and quickly, for this example we will use [fmt](https://github.com/fmtlib/fmt). 
 
 ## Commandline
-`cinstall --list-packages` -- This lists all packages.
-`cinstall --list-packages json` -- Lists all packages that have `json` in their name.
-`cinstall {fmt}` -- Will install the package mentioned above.
+* `cinstall --list-packages` -- This lists all packages.
+* `cinstall --list-packages json` -- Lists all packages that have `json` in their name.
+* `cinstall {fmt}` -- Will install the package mentioned above.
 
 All you have to do is run `cinstall https://github.com/fmtlib/fmt`
 
