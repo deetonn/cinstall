@@ -1,6 +1,7 @@
 use crate::{output, outputln};
 use colored::Colorize;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use std::io::Read;
 use std::{
     io::Error,
     path::Path,
@@ -18,6 +19,7 @@ pub enum InstallError {
     FailedToCreateDirectory,
     FailedToMakeInstall,
     FailedToChangeDirectory,
+    UnknownFatal(String),
 }
 
 impl ToString for InstallError {
@@ -32,7 +34,8 @@ impl ToString for InstallError {
             E::CMakeFailed => "cmake failed to generated the projects makefile.".into(),
             E::FailedToCreateDirectory => "failed to create temporary directory to build the project from.".into(),
             E::FailedToMakeInstall => "`make install` failed.".into(),
-            E::FailedToChangeDirectory => "failed to set the environment directory. (this is a bizzare error)".into()
+            E::FailedToChangeDirectory => "failed to set the environment directory. (this is a bizzare error)".into(),
+            E::UnknownFatal(message) => message.clone()
         }
     }
 }
@@ -106,6 +109,138 @@ pub fn verify_has_programs() -> Result<(), InstallError> {
     Ok(())
 }
 
+pub enum InstallMethod {
+    RunCMake,
+    MakeInstall,
+    Unknown(String),
+}
+
+macro_rules! with_temp_path {
+    ($path:ident, $body:block) => {{
+        let old_path = match std::env::current_dir() {
+            Ok(p) => p,
+            Err(e) => {
+                return Err(InstallError::UnknownFatal(format!("failed to temporarily switch to temp directory. {}", e.to_string())));
+            }
+        };
+
+        match std::env::set_current_dir($path) {
+            Ok(_) => (),
+            Err(_) => {
+                return Err(InstallError::FailedToChangeDirectory);
+            }
+        };
+
+        $body
+
+        match std::env::set_current_dir(&old_path) {
+            Ok(_) => (),
+            Err(_) => {
+                return Err(InstallError::UnknownFatal("failed to switch directory back to original.".into()));
+            }
+        };
+    }};
+}
+
+pub fn resolve_makefile_install_method(path: &Path) -> Result<InstallMethod, InstallError> {
+    outputln!(
+        green,
+        "checking what install methods are available in the makefile."
+    );
+
+    let file_contents = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            return Err(InstallError::UnknownFatal(format!(
+                "failed to read makefile. {}",
+                e
+            )));
+        }
+    };
+
+    let file_contents: Vec<String> = file_contents.split('\n').map(String::from).collect();
+
+    // We need to check for the rule: `install:`
+    let has_install = file_contents.iter().any(|item| &**item == "install:");
+
+    // There is no install procedure available.
+    if has_install {
+        Ok(InstallMethod::MakeInstall)
+    } else {
+        Err(InstallError::UnknownFatal(
+            "the makefile has no `install` procedure.".into(),
+        ))
+    }
+}
+
+pub fn execute_cmake(path: &Path) -> Result<(), InstallError> {
+    with_temp_path!(path, {
+        let result = Command::new("cmake").arg(".").status();
+
+        match result {
+            Ok(status) => {
+                if !status.success() {
+                    return Err(InstallError::CMakeFailed);
+                }
+                outputln!(green, "cmake was successful");
+            }
+            Err(e) => {
+                return Err(InstallError::CouldNotStartProcess(format!(
+                    "failed to start cmake: {}",
+                    e
+                )))
+            }
+        }
+    });
+
+    Ok(())
+}
+
+pub fn execute_make_install(path: &Path) -> Result<(), InstallError> {
+    with_temp_path!(path, {
+        let status = Command::new("make").arg("install").status();
+
+        match status {
+            Ok(result) => {
+                if !result.success() {
+                    return Err(InstallError::FailedToMakeInstall);
+                }
+                outputln!("`make install` was successful!");
+            }
+            Err(e) => {
+                return Err(InstallError::CouldNotStartProcess(e.to_string()));
+            }
+        }
+    });
+
+    Ok(())
+}
+
+pub fn resolve_install_method(path: &Path) -> InstallMethod {
+    if path.join("/Makefile").exists() {
+        // We need to check if the "Makefile" has an install
+        // method.
+    }
+
+    if path.join("/CMakeLists.txt").exists() {
+        // NOTE: This is a pre-step. After running cmake,
+        //       the Make path with of course be hit.
+        return InstallMethod::RunCMake;
+    }
+
+    InstallMethod::Unknown(
+        "this repository has no known way of installation. (cmake and make was tried)".into(),
+    )
+}
+
+pub fn execute_install_method(path: &Path, method: InstallMethod) -> Result<(), InstallError> {
+    match method {
+        InstallMethod::Unknown(message) => Err(InstallError::UnknownFatal(message)),
+        InstallMethod::RunCMake => execute_cmake(path),
+        InstallMethod::MakeInstall => execute_make_install(path),
+    }
+}
+
 pub struct Installer<'a> {
     url: &'a Url,
     path: String,
@@ -120,7 +255,7 @@ impl<'a> Installer<'a> {
             .map(char::from)
             .collect();
 
-        let temp_path = format!("/tmp/cppinstall-{}", random_tag);
+        let temp_path = format!("/tmp/cinstall-{}", random_tag);
 
         if !Path::new(&temp_path).exists() {
             match std::fs::create_dir_all(&temp_path) {
@@ -161,53 +296,18 @@ impl<'a> Installer<'a> {
             }
         };
 
-        // set the current working directory so cmake and make dont shit themselves.
-        match std::env::set_current_dir(&temp_path) {
-            Ok(_) => (),
-            Err(e) => {
-                outputln!(red, "failed to set active directory.");
-                outputln!(red, "reason: {}", e);
-                return Err(InstallError::FailedToChangeDirectory);
-            }
-        };
+        // use cmake to build a Makefile
+        let path = Path::new(&temp_path);
+        let method = resolve_install_method(path);
 
-        // use cmake to build a makefile
-        match Command::new("cmake").arg(&temp_path).status() {
-            Ok(status) => {
-                let code = status.code().unwrap_or(-1);
-                if !status.success() {
-                    outputln!(
-                        red,
-                        "cmake failed to generated makefile. (exitied with code {})",
-                        code
-                    );
-                    return Err(InstallError::CMakeFailed);
-                }
-                outputln!(green, "cmake has finished generated makefile.");
-            }
-            Err(e) => {
-                outputln!(red, "failed to run cmake: {}", e);
-                return Err(InstallError::CouldNotStartProcess("cmake".into()));
-            }
-        };
+        if let InstallMethod::Unknown(message) = &method {
+            return Err(InstallError::UnknownFatal(message.clone()));
+        }
 
-        // use make to install the project locally.
-        match Command::new("make").arg(&temp_path).arg("install").status() {
-            Ok(status) => {
-                if !status.success() {
-                    let code = status.code().unwrap_or(-1);
-                    outputln!(
-                        red,
-                        "failed to `make install` the project. (exited with code {})",
-                        code
-                    );
-                    return Err(InstallError::FailedToMakeInstall);
-                }
-                outputln!(green, "successfully installed project locally!");
-            }
+        match execute_install_method(path, method) {
+            Ok(_) => outputln!("all execution steps completed successfully."),
             Err(e) => {
-                outputln!(red, "failed to run `make install`: {}", e);
-                return Err(InstallError::CouldNotStartProcess("make".into()));
+                return Err(e);
             }
         };
 
