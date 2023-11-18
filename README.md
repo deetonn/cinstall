@@ -1,6 +1,6 @@
 # cinstall
 Install any C/C++ project locally using one command. The only requirement (**FOR NOW**) is that it's a cmake/make project.
-You simply run `cinstall github-link-to-repo` and the rest is done for you!
+You simply run `cinstall package-name | package-url` and the rest is done for you!
 
 # Usage
 
