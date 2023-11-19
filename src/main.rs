@@ -2,25 +2,25 @@ pub mod installer;
 pub mod registry;
 
 use colored::Colorize;
-use installer::{InstallError, Installer};
+use installer::Installer;
 use registry::*;
 use url::Url;
 
 macro_rules! outputln {
     ($format:literal $(, $arg:tt)*) => {
-        eprintln!(concat!("[{}] ", $format), "installer".bold().cyan(), $($arg)*)
+        eprintln!(concat!("[{}] ", $format), "installer".bold().cyan() $(, $arg)*)
     };
     ($col:ident, $format:literal $(, $arg:tt)*) => {
-        eprintln!(concat!("[{}] ", $format), "installer".bold().$col(), $($arg)*)
+        eprintln!(concat!("[{}] ", $format), "installer".bold().$col() $(, $arg)*)
     };
 }
 
 macro_rules! output {
     ($format:literal $(, $arg:tt)*) => {
-        eprint!(concat!("[{}] ", $format), "installer".bold().cyan(), $($arg)*)
+        eprint!(concat!("[{}] ", $format), "installer".bold().cyan() $(, $arg)*)
     };
     ($col:ident, $format:literal $(, $arg:tt)*) => {
-        eprint!(concat!("[{}] ", $format), "installer".bold().$col(), $($arg)*)
+        eprint!(concat!("[{}] ", $format), "installer".bold().$col() $(, $arg)*)
     };
 }
 
@@ -78,10 +78,10 @@ fn main() {
             eprintln!(
                 "[{}] {} - {} ({}) [{} (not always accurate)]",
                 "package".bold().bright_cyan(),
-                name,
-                desc,
-                url,
-                lang
+                name.italic().white(),
+                desc.blue().bold(),
+                url.purple(),
+                lang.italic()
             );
         }
 
